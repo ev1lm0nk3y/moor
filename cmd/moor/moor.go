@@ -127,11 +127,7 @@ func parseStyleOption(styleOption string) (*chroma.Style, error) {
 
 func parseColorsOption(colorsOption string) (twin.ColorCount, error) {
 	if strings.ToLower(colorsOption) == "auto" {
-		colorsOption = "16M"
-		if os.Getenv("COLORTERM") != "truecolor" && strings.Contains(os.Getenv("TERM"), "256") {
-			// Covers "xterm-256color" as used by the macOS Terminal
-			colorsOption = "256"
-		}
+		return twin.DefaultColorCount(), nil
 	}
 
 	switch strings.ToUpper(colorsOption) {
@@ -393,7 +389,7 @@ func getVersion() string {
 // Can return a nil pager on --help or --version, or if pumping to stdout.
 func pagerFromArgs(
 	args []string,
-	newScreen func(mouseMode twin.MouseMode, terminalColorCount twin.ColorCount) (twin.Screen, error),
+	newScreen func(options twin.ScreenOptions) (twin.Screen, error),
 	stdinIsRedirected bool,
 	stdoutIsRedirected bool,
 ) (
@@ -434,6 +430,8 @@ func pagerFromArgs(
 	flagSet.Bool("no-reformat", true, "No effect, kept for compatibility. See --reformat")
 	quitIfOneScreen := flagSet.Bool("quit-if-one-screen", false, "Don't page if contents fits on one screen. Affected by --no-clear-on-exit-margin.")
 	noClearOnExit := flagSet.Bool("no-clear-on-exit", false, "Retain screen contents when exiting moor")
+	noAlternateScreen := flagSet.Bool("no-alternate-screen", false, "Don't use the alternate screen buffer (like less -X)")
+	flagSet.BoolVar(noAlternateScreen, "X", false, "Don't use the alternate screen buffer (like less -X)")
 	noClearOnExitMargin := flagSet.Int("no-clear-on-exit-margin", 1,
 		"Number of lines to leave for your shell prompt, defaults to 1")
 	statusBarStyle := flagSetFunc(flagSet, "statusbar", internal.STATUSBAR_STYLE_INVERSE,
@@ -587,7 +585,7 @@ func pagerFromArgs(
 		var readerImpl *reader.ReaderImpl
 		var err error
 
-		if stdinIsRedirected && inputFilename == "-" {
+		if inputFilename == "-" {
 			if stdinDone {
 				// stdin already drained, don't do it again
 				continue
@@ -600,6 +598,8 @@ func pagerFromArgs(
 
 			// If the user is doing "sudo something | moor" we can't show the UI until
 			// we start getting data, otherwise we'll mess up sudo's password prompt.
+			//
+			// This also protects the shell prompt if we're doing "moor -".
 			readerImpl.AwaitFirstByte()
 
 			stdinDone = true
@@ -615,7 +615,11 @@ func pagerFromArgs(
 
 	// We got the first byte, this means sudo is done (if it was used) and we
 	// can set up the UI.
-	screen, err := newScreen(*mouseMode, *terminalColorsCount)
+	screen, err := newScreen(twin.ScreenOptions{
+		MouseMode:          *mouseMode,
+		ColorCount:         *terminalColorsCount,
+		UseAlternateScreen: !*noAlternateScreen,
+	})
 	if err != nil {
 		// Ref: https://github.com/walles/moor/issues/149
 		log.Info("Failed to set up screen for paging, pumping to stdout instead: ", err)
@@ -702,7 +706,7 @@ func main() {
 
 	pager, screen, style, formatter, _logsRequested, err := pagerFromArgs(
 		os.Args,
-		twin.NewScreenWithMouseModeAndColorCount,
+		twin.NewScreenWithOptions,
 		stdinIsRedirected,
 		stdoutIsRedirected,
 	)

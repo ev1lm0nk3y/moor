@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/alecthomas/chroma/v2"
@@ -364,6 +366,18 @@ func noLineNumbersDefault() bool {
 	return false
 }
 
+// unescapeManPn removes escaping inserted by GNU man's escape_less function.
+// It escapes ? : . % \ with a backslash.
+func unescapeManPn(manPn string) string {
+	return strings.NewReplacer(
+		`\?`, `?`,
+		`\:`, `:`,
+		`\.`, `.`,
+		`\%`, `%`,
+		`\\`, `\`,
+	).Replace(manPn)
+}
+
 // Return complete version when built with build.sh or fallback to module version (i.e. "go install")
 func getVersion() string {
 	if versionString != "" {
@@ -564,7 +578,7 @@ func pagerFromArgs(
 		stdinName = os.Getenv("PAGER_LABEL")
 	} else if os.Getenv("MAN_PN") != "" {
 		// MAN_PN is set by GNU man. Example value: "printf(1)"
-		stdinName = os.Getenv("MAN_PN")
+		stdinName = unescapeManPn(os.Getenv("MAN_PN"))
 	}
 
 	// Display the input file(s) contents
@@ -725,6 +739,28 @@ func flagSetFunc[T any](flagSet *flag.FlagSet, name string, defaultValue T, usag
 }
 
 func startPaging(pager *internal.Pager, screen twin.Screen, chromaStyle *chroma.Style, chromaFormatter *chroma.Formatter) {
+	// Handle SIGINT and SIGTERM
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		defer func() {
+			internal.PanicHandler("startPaging()/signals", recover(), debug.Stack())
+		}()
+
+		sig := <-signals
+		log.Infof("Got signal %v, exiting...", sig)
+		screen.Close()
+
+		exitCode := 1
+		syscallSignal, ok := sig.(syscall.Signal)
+		if ok {
+			// Ref: https://hypothesis.sh/references/exit-codes?grp=signal
+			exitCode = 128 + int(syscallSignal)
+		}
+
+		os.Exit(exitCode)
+	}()
+
 	defer func() {
 		panicMessage := recover()
 		if panicMessage != nil {

@@ -50,6 +50,14 @@ jobs:
         with:
           go-version-file: "go.mod"
 
+      - name: Install mandoc
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y mandoc
+
+      - name: Install mandoc
+        if: matrix.os == 'macos-latest'
+        run: brew install mandoc
+
       - name: Run tests (Linux/macOS)
         if: matrix.os != 'windows-latest'
         env:

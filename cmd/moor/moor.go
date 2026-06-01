@@ -587,7 +587,7 @@ func pagerFromArgs(
 		var readerImpl *reader.ReaderImpl
 		var err error
 
-		if stdinIsRedirected && inputFilename == "-" {
+		if inputFilename == "-" {
 			if stdinDone {
 				// stdin already drained, don't do it again
 				continue
@@ -600,6 +600,8 @@ func pagerFromArgs(
 
 			// If the user is doing "sudo something | moor" we can't show the UI until
 			// we start getting data, otherwise we'll mess up sudo's password prompt.
+			//
+			// This also protects the shell prompt if we're doing "moor -".
 			readerImpl.AwaitFirstByte()
 
 			stdinDone = true

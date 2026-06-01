@@ -8,7 +8,7 @@ GOOS=$(go env GOOS)
 GOARCH=$(go env GOARCH)
 
 # Extract CPU model safely across platforms
-if command -v sysctl >/dev/null 2>&1; then
+if [ "$GOOS" = "darwin" ] && command -v sysctl >/dev/null 2>&1; then
     CPU_RAW=$(sysctl -n machdep.cpu.brand_string)
 elif [ -f /proc/cpuinfo ]; then
     CPU_RAW=$(awk -F: '/model name/ {print $2; exit}' /proc/cpuinfo)
